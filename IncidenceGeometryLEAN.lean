@@ -1,4 +1,5 @@
 import Mathlib
+set_option linter.style.whitespace false
 universe u v w
 
 /-structure IncidenceSystem (X : Type u) (I : Type v) where
@@ -43,16 +44,22 @@ variable {X : Type u} {I : Type v}
 
 -- elements of X \ points are singletons in this graph
 def IncidenceGraph (S : IncidenceSystem X I) : SimpleGraph X where
-  Adj a b := a ≠ b ∧ S.incidence a b  -- We already have symmetry in S
+  Adj a b := a ≠ b ∧ a ∈ S.points ∧ b ∈ S.points ∧ S.incidence a b
   symm a b := by                      -- so symmetry requires a proof
-    intro ⟨hne, hab⟩                  -- suppose hne : a ≠ b and hab : S.incidence a b
-    exact ⟨Ne.symm hne, S.incidence_symmetric hab⟩  -- and invoke symmetry
+    intro h
+    rcases h with ⟨hne, ha, hb, hab⟩
+    exact ⟨Ne.symm hne, hb, ha, S.incidence_symmetric hab⟩
 
 def IncidenceGraphColoring {S : IncidenceSystem X I} :
-    (IncidenceGraph S).Coloring I := sorry
-
-
-
+    (IncidenceGraph S).Coloring I :=
+  SimpleGraph.Coloring.mk S.type_func <| by
+    intro a b hab
+    rcases hab with ⟨hne, ha, hb, hab⟩
+    have hcond : S.type_func a ≠ S.type_func b ∨ a = b :=
+      (S.incidence_type_condition a b ha hb).1 hab
+    rcases hcond with hneType | heq
+    · exact hneType
+    · exact (hne heq).elim
 
 
 
@@ -62,16 +69,44 @@ def IsFlag (F : Set X) (S : IncidenceSystem X I) : Prop :=
 
 theorem IsFlag_iff (S : IncidenceSystem X I) (F : Set X) (hF : F ⊆ S.points) :
     IsFlag F S ↔ (IncidenceGraph S).IsClique F := by
-  simp_all only [IsFlag, true_and, SimpleGraph.IsClique, IncidenceGraph, ne_eq]
   constructor
-  · intro hF' a ha b hb hne
-    exact ⟨hne, hF' a ha b hb⟩
-  · intro h x hx y hy
+  · intro hflag a ha b hb hne
+    exact ⟨hne, hF ha, hF hb, hflag.2 a ha b hb⟩
+  · intro h
+    refine ⟨hF, ?_⟩
+    intro x hx y hy
     match Classical.em <| x = y with
     | Or.inl heq =>
         subst heq
         exact S.incidence_reflexive x
-    | Or.inr hne => exact (h hx hy hne).right
+    | Or.inr hne => exact (h hx hy hne).2.2.2
+
+def IncidenceSystemOfColoredGraph (G : SimpleGraph X) (c : G.Coloring I)
+    (hcomplete : ∀ x y : X, c x ≠ c y → x = y ∨ G.Adj x y) :
+    IncidenceSystem X I where
+  points := Set.univ
+  types := Set.univ
+  type_func := c
+  incidence x y := x = y ∨ G.Adj x y
+  incidence_reflexive := by
+    intro x
+    exact Or.inl rfl
+  incidence_symmetric := by
+    intro x y hxy
+    rcases hxy with hxy | hxy
+    · exact Or.inl hxy.symm
+    · exact Or.inr (G.symm hxy)
+  incidence_type_condition := by
+    intro x y _ _
+    constructor
+    · intro hxy
+      rcases hxy with hxy | hxy
+      · exact Or.inr hxy
+      · exact Or.inl (c.valid hxy)
+    · intro hxy
+      rcases hxy with hxy | hxy
+      · exact hcomplete x y hxy
+      · exact Or.inl hxy
 
 
 def ResidueOfIncidenceSystem (F : Set X) (S : IncidenceSystem X I) (hF : IsFlag F S) :
@@ -285,8 +320,30 @@ def composeCorrelation [Nonempty X]
     constructor
     · exact (composeWeakHomomorphism α.toWeakHomomorphism β.toWeakHomomorphism).isWeakHom
     · constructor
-      · exact Function.Bijective.comp β.isCorr.2.1 α.isCorr.2.1
-      · sorry  -- composition of inverse weak homomorphisms
+      · simpa [composeWeakHomomorphism, Function.comp] using
+          (Function.Bijective.comp β.isCorr.2.1 α.isCorr.2.1)
+      · let αinv : WeakHomomorphism T S :=
+          { Fun := Function.invFun α.Fun
+            isWeakHom := α.isCorr.2.2 }
+        let βinv : WeakHomomorphism U T :=
+          { Fun := Function.invFun β.Fun
+            isWeakHom := β.isCorr.2.2 }
+        have hinvEq :
+            Function.invFun (β.Fun ∘ α.Fun) =
+              Function.invFun α.Fun ∘ Function.invFun β.Fun := by
+          apply Function.invFun_eq_of_injective_of_rightInverse
+          · exact (Function.Bijective.comp β.isCorr.2.1 α.isCorr.2.1).1
+          · intro x
+            dsimp [Function.comp]
+            rw [Function.rightInverse_invFun α.isCorr.2.1.2,
+              Function.rightInverse_invFun β.isCorr.2.1.2]
+        have hinvEq' :
+            Function.invFun
+                (composeWeakHomomorphism α.toWeakHomomorphism β.toWeakHomomorphism).Fun =
+              Function.invFun α.Fun ∘ Function.invFun β.Fun := by
+          simpa [composeWeakHomomorphism] using hinvEq
+        simpa [hinvEq'] using
+          (composeWeakHomomorphism βinv αinv).isWeakHom
 }
 
 def composeIsomorphism [Nonempty X]
@@ -295,13 +352,16 @@ def composeIsomorphism [Nonempty X]
     Isomorphism S U :=
 { toHomomorphism := composeHomomorphism α.toHomomorphism β.toHomomorphism
   isIso := by
+    let αcorr : Correlation S T :=
+      { toWeakHomomorphism := α.toWeakHomomorphism
+        isCorr := α.isIso.2 }
+    let βcorr : Correlation T U :=
+      { toWeakHomomorphism := β.toWeakHomomorphism
+        isCorr := β.isIso.2 }
     constructor
     · exact (composeHomomorphism α.toHomomorphism β.toHomomorphism).isHom
-    · constructor
-      · exact (composeHomomorphism α.toHomomorphism β.toHomomorphism).isHom.1
-      · constructor
-        · exact Function.Bijective.comp β.isIso.2.2.1 α.isIso.2.2.1
-        · sorry  -- composition of inverse weak homomorphisms
+    · simpa [composeHomomorphism, composeWeakHomomorphism, Function.comp] using
+        (composeCorrelation αcorr βcorr).isCorr
 }
 
 def composeAutomorphism [Nonempty X]
@@ -320,24 +380,331 @@ def composeAutoCorrelation [Nonempty X]
   isAutoCorr := (composeCorrelation α.toCorrelation β.toCorrelation).isCorr
 }
 
--- The automorphism group is a subgroup of the permutation group
-instance IncSys_AutomorphismGroup [Nonempty X] (S : IncidenceSystem X I) : Group (Automorphism S) :=
-  { mul := fun α β => sorrry
-    one := id
-    inv := fun α => Function.invFun (α : X → X)
+@[ext] theorem WeakHomomorphism.ext [Nonempty X] {S T : IncidenceSystem X I}
+    {α β : WeakHomomorphism S T} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aFun aWeak =>
+    cases β with
+    | mk bFun bWeak =>
+      dsimp at hFun
+      cases hFun
+      simp
+
+@[ext] theorem Homomorphism.ext [Nonempty X] {S T : IncidenceSystem X I}
+    {α β : Homomorphism S T} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aWeak aHom =>
+    cases β with
+    | mk bWeak bHom =>
+      have hWeak : aWeak = bWeak := WeakHomomorphism.ext hFun
+      cases hWeak
+      simp
+
+@[ext] theorem Isomorphism.ext [Nonempty X] {S T : IncidenceSystem X I}
+    {α β : Isomorphism S T} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aHom aIso =>
+    cases β with
+    | mk bHom bIso =>
+      have hHom : aHom = bHom := Homomorphism.ext hFun
+      cases hHom
+      simp
+
+@[ext] theorem Correlation.ext [Nonempty X] {S T : IncidenceSystem X I}
+    {α β : Correlation S T} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aWeak aCorr =>
+    cases β with
+    | mk bWeak bCorr =>
+      have hWeak : aWeak = bWeak := WeakHomomorphism.ext hFun
+      cases hWeak
+      simp
+
+@[ext] theorem Automorphism.ext [Nonempty X] {S : IncidenceSystem X I}
+    {α β : Automorphism S} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aIso aAuto =>
+    cases β with
+    | mk bIso bAuto =>
+      have hIso : aIso = bIso := Isomorphism.ext hFun
+      cases hIso
+      simp
+
+@[ext] theorem AutoCorrelation.ext [Nonempty X] {S : IncidenceSystem X I}
+    {α β : AutoCorrelation S} (hFun : α.Fun = β.Fun) : α = β := by
+  cases α with
+  | mk aCorr aAutoCorr =>
+    cases β with
+    | mk bCorr bAutoCorr =>
+      have hCorr : aCorr = bCorr := Correlation.ext hFun
+      cases hCorr
+      simp
+
+def idIsomorphism [Nonempty X] (S : IncidenceSystem X I) : Isomorphism S S := by
+  have hWeakId : IsWeakHomomorphism S S id := by
+    intro x hx
+    constructor
+    · simpa using hx
+    · intro x hx y hy
+      refine ⟨?_, ?_⟩
+      · intro hxy
+        simpa using hxy
+      · simp
+  have hHomId : IsHomomorphism S S id := by
+    constructor
+    · exact hWeakId
+    · constructor
+      · rfl
+      · intro x hx
+        rfl
+  have hInvId : Function.invFun (id : X → X) = id := by
+    apply Function.invFun_eq_of_injective_of_rightInverse
+    · intro a b h
+      exact h
+    · intro x
+      rfl
+  have hCorrId : IsCorrelation S S id := by
+    constructor
+    · exact hWeakId
+    · constructor
+      · exact Function.bijective_id
+      · simpa [hInvId] using hWeakId
+  exact
+    { toHomomorphism :=
+        { toWeakHomomorphism :=
+            { Fun := id
+              isWeakHom := hWeakId }
+          isHom := hHomId }
+      isIso := ⟨hHomId, hCorrId⟩ }
+
+noncomputable def invIsomorphism [Nonempty X] {S : IncidenceSystem X I}
+    (α : Automorphism S) : Isomorphism S S := by
+  let f := α.Fun
+  have hHom : IsHomomorphism S S f := α.isAuto.1
+  have hCorr : IsCorrelation S S f := α.isAuto.2
+  have hWeak : IsWeakHomomorphism S S f := hCorr.1
+  have hBij : Function.Bijective f := hCorr.2.1
+  have hInvWeak : IsWeakHomomorphism S S (Function.invFun f) := hCorr.2.2
+  have hInvHom : IsHomomorphism S S (Function.invFun f) := by
+    constructor
+    · exact hInvWeak
+    · constructor
+      · rfl
+      · intro x hx
+        have hx' : Function.invFun f x ∈ S.points := (hInvWeak x hx).1
+        have htype : S.type_func (Function.invFun f x) = S.type_func (f (Function.invFun f x)) :=
+          hHom.2.2 (Function.invFun f x) hx'
+        simpa [Function.rightInverse_invFun hBij.2 x] using htype.symm
+  have hInvBij : Function.Bijective (Function.invFun f) := by
+    refine ⟨?_, ?_⟩
+    · exact (Function.rightInverse_invFun hBij.2).injective
+    · exact Function.invFun_surjective hBij.1
+  have hInvInvEq : Function.invFun (Function.invFun f) = f := by
+    apply Function.invFun_eq_of_injective_of_rightInverse
+    · exact hInvBij.1
+    · exact Function.leftInverse_invFun hBij.1
+  have hInvCorr : IsCorrelation S S (Function.invFun f) := by
+    constructor
+    · exact hInvWeak
+    · constructor
+      · exact hInvBij
+      · simpa [hInvInvEq] using hWeak
+  exact
+    { toHomomorphism :=
+        { toWeakHomomorphism :=
+            { Fun := Function.invFun f
+              isWeakHom := hInvWeak }
+          isHom := hInvHom }
+      isIso := ⟨hInvHom, hInvCorr⟩ }
+
+def idCorrelation [Nonempty X] (S : IncidenceSystem X I) : Correlation S S := by
+  have hWeakId : IsWeakHomomorphism S S id := by
+    intro x hx
+    constructor
+    · simpa using hx
+    · intro x hx y hy
+      refine ⟨?_, ?_⟩
+      · intro hxy
+        simpa using hxy
+      · simp
+  have hInvId : Function.invFun (id : X → X) = id := by
+    apply Function.invFun_eq_of_injective_of_rightInverse
+    · intro a b h
+      exact h
+    · intro x
+      rfl
+  have hCorrId : IsCorrelation S S id := by
+    refine ⟨hWeakId, ?_⟩
+    refine ⟨Function.bijective_id, ?_⟩
+    simpa [hInvId] using hWeakId
+  exact
+    { toWeakHomomorphism :=
+        { Fun := id
+          isWeakHom := hWeakId }
+      isCorr := hCorrId }
+
+noncomputable def invCorrelation [Nonempty X] {S : IncidenceSystem X I}
+    (α : AutoCorrelation S) : Correlation S S := by
+  let f := α.Fun
+  have hCorr : IsCorrelation S S f := α.isAutoCorr
+  have hWeak : IsWeakHomomorphism S S f := hCorr.1
+  have hBij : Function.Bijective f := hCorr.2.1
+  have hInvWeak : IsWeakHomomorphism S S (Function.invFun f) := hCorr.2.2
+  have hInvBij : Function.Bijective (Function.invFun f) := by
+    refine ⟨?_, ?_⟩
+    · exact (Function.rightInverse_invFun hBij.2).injective
+    · exact Function.invFun_surjective hBij.1
+  have hInvInvEq : Function.invFun (Function.invFun f) = f := by
+    apply Function.invFun_eq_of_injective_of_rightInverse
+    · exact hInvBij.1
+    · exact Function.leftInverse_invFun hBij.1
+  have hInvCorr : IsCorrelation S S (Function.invFun f) := by
+    refine ⟨hInvWeak, ?_⟩
+    refine ⟨hInvBij, ?_⟩
+    simpa [hInvInvEq] using hWeak
+  exact
+    { toWeakHomomorphism :=
+        { Fun := Function.invFun f
+          isWeakHom := hInvWeak }
+      isCorr := hInvCorr }
+
+-- Automorphism Group of Type-Presserving
+noncomputable instance IncSys_AutomorphismGroup [Nonempty X]
+  (S : IncidenceSystem X I) : Group (Automorphism S) :=
+  { mul := composeAutomorphism
+    one := { toIsomorphism := idIsomorphism S }
+    inv := fun α => { toIsomorphism := invIsomorphism α }
     mul_assoc := by
       intros α β γ
       ext x
-      simp [Function.comp]
+      rfl
     one_mul := by
       intro α
       ext x
-      simp [Function.comp, id]
+      rfl
     mul_one := by
       intro α
       ext x
-      simp [Function.comp, id]
-    mul_left_inv := by
+      rfl
+    inv_mul_cancel := by
       intro α
       ext x
-      simp [Function.comp, Function.invFun] }
+      exact Function.rightInverse_invFun α.isAuto.2.2.1.2 x }
+
+-- Autocorrelation Group (includes non-type-preserving automorphisms)
+noncomputable instance IncSys_AutoCorrelationGroup [Nonempty X]
+  (S : IncidenceSystem X I) : Group (AutoCorrelation S) :=
+  { mul := composeAutoCorrelation
+    one := { toCorrelation := idCorrelation S }
+    inv := fun α => { toCorrelation := invCorrelation α }
+    mul_assoc := by
+      intros α β γ
+      ext x
+      rfl
+    one_mul := by
+      intro α
+      ext x
+      rfl
+    mul_one := by
+      intro α
+      ext x
+      rfl
+    inv_mul_cancel := by
+      intro α
+      ext x
+      exact Function.rightInverse_invFun α.isAutoCorr.2.1.2 x }
+
+
+theorem typeOfFlag_image_automorphism [Nonempty X] (S : IncidenceSystem X I)
+    (α : Automorphism S) (F : Set X) (hF : IsFlag F S) :
+    TypeOfFlag (Set.image α.Fun F) S = TypeOfFlag F S := by
+  ext i
+  constructor
+  · intro hi
+    rcases hi with ⟨y, hy, rfl⟩
+    rcases hy with ⟨x, hx, rfl⟩
+    refine ⟨x, hx, ?_⟩
+    exact α.isAuto.1.2.2 x (hF.1 hx)
+  · intro hi
+    rcases hi with ⟨x, hx, rfl⟩
+    refine ⟨α.Fun x, ⟨x, hx, rfl⟩, ?_⟩
+    exact (α.isAuto.1.2.2 x (hF.1 hx)).symm
+
+theorem eq_of_subset_chamber_of_typeEq (S : IncidenceSystem X I)
+    {C A B : Set X} (hC : IsChamber C S)
+    (hA : A ⊆ C) (hB : B ⊆ C)
+    (hType : TypeOfFlag A S = TypeOfFlag B S) :
+    A = B := by
+  ext x
+  constructor
+  · intro hxA
+    have hxC : x ∈ C := hA hxA
+    have htxA : S.type_func x ∈ TypeOfFlag A S := ⟨x, hxA, rfl⟩
+    have htxB : S.type_func x ∈ TypeOfFlag B S := by simpa [hType] using htxA
+    rcases htxB with ⟨y, hyB, htyx⟩
+    have hyC : y ∈ C := hB hyB
+    have hxyInc : S.incidence x y := hC.1.2 x hxC y hyC
+    have hxP : x ∈ S.points := hC.1.1 hxC
+    have hyP : y ∈ S.points := hC.1.1 hyC
+    have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
+      (S.incidence_type_condition x y hxP hyP).1 hxyInc
+    have hxy : x = y := by
+      rcases hxyOr with hne | hEq
+      · exfalso
+        exact hne (by simp [htyx])
+      · exact hEq
+    simpa [hxy] using hyB
+  · intro hxB
+    have hxC : x ∈ C := hB hxB
+    have htxB : S.type_func x ∈ TypeOfFlag B S := ⟨x, hxB, rfl⟩
+    have htxA : S.type_func x ∈ TypeOfFlag A S := by simpa [hType] using htxB
+    rcases htxA with ⟨y, hyA, htyx⟩
+    have hyC : y ∈ C := hA hyA
+    have hxyInc : S.incidence x y := hC.1.2 x hxC y hyC
+    have hxP : x ∈ S.points := hC.1.1 hxC
+    have hyP : y ∈ S.points := hC.1.1 hyC
+    have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
+      (S.incidence_type_condition x y hxP hyP).1 hxyInc
+    have hxy : x = y := by
+      rcases hxyOr with hne | hEq
+      · exfalso
+        exact hne (by simp [htyx])
+      · exact hEq
+    simpa [hxy] using hyA
+
+def IsFlagTransitive [Nonempty X] (S : IncidenceSystem X I) : Prop :=
+  ∀ F G : Set X, IsFlag F S → IsFlag G S →
+    TypeOfFlag F S = TypeOfFlag G S →
+    ∃ α : Automorphism S, Set.image α.Fun F = G
+
+def IsChamberTransitive [Nonempty X] (S : IncidenceSystem X I) : Prop :=
+  ∀ C D : Set X, IsChamber C S → IsChamber D S →
+    ∃ α : Automorphism S, Set.image α.Fun C = D
+
+set_option linter.style.whitespace false in
+theorem ChamberTransitive_iff_FlagTransitive [Nonempty X]
+    (S : IncidenceSystem X I) (IsGeom : IsGeometry S) :
+    IsChamberTransitive S ↔ IsFlagTransitive S := by
+  constructor
+  · intro hChamberTrans F G hF hG hType
+    obtain ⟨CF, hCF, hChamberF, hFsubCF⟩ := IsGeom F hF.1 hF
+    obtain ⟨CG, hCG, hChamberG, hGsubCG⟩ := IsGeom G hG.1 hG
+    obtain ⟨α, hα⟩ := hChamberTrans CF CG hChamberF hChamberG
+    refine ⟨α, ?_⟩
+    have hImgSubCG : Set.image α.Fun F ⊆ CG := by
+      intro y hy
+      rcases hy with ⟨x, hxF, rfl⟩
+      have hxCF : x ∈ CF := hFsubCF hxF
+      have hax : α.Fun x ∈ Set.image α.Fun CF := ⟨x, hxCF, rfl⟩
+      simpa [hα] using hax
+    have hTypeImg : TypeOfFlag (Set.image α.Fun F) S = TypeOfFlag F S :=
+      typeOfFlag_image_automorphism S α F hF
+    have hTypeImgG : TypeOfFlag (Set.image α.Fun F) S = TypeOfFlag G S :=
+      hTypeImg.trans hType
+    exact eq_of_subset_chamber_of_typeEq S hChamberG hImgSubCG hGsubCG hTypeImgG
+  · intro hFlagTrans C D hC hD
+    rcases hC with ⟨hCFlag, hCType⟩
+    rcases hD with ⟨hDFlag, hDType⟩
+    have hTypeCD : TypeOfFlag C S = TypeOfFlag D S := by
+      rw [hCType, hDType]
+    exact hFlagTrans C D hCFlag hDFlag hTypeCD
