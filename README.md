@@ -1,13 +1,27 @@
 # IncidenceGeometryLEAN
 
-## GitHub configuration
+In this repository, we will code the theory of Incidence Geometry into LEAN.
 
-To set up your new GitHub repository, follow these steps:
 
-* Under your repository name, click **Settings**.
-* In the **Actions** section of the sidebar, click "General".
-* Check the box **Allow GitHub Actions to create and approve pull requests**.
-* Click the **Pages** section of the settings sidebar.
-* In the **Source** dropdown menu, select "GitHub Actions".
+So far, we have implemented
 
-After following the steps above, you can remove this section from the README file.
+- Definitions:
+- - Definition of Incidence Geometry
+- - Definition of Incidence Graph from an Incidence Geometry (missing the vertex coloring by the type set I)
+- - Definition of Flag, Chamber, Geometry and Residue;
+- - (Residual) Connectedness;
+- - Firmness, Thinness, Thickness;
+- - Hypertope;
+- - (Weak) Homomorphism, (Auto)Correlation, Isomorphism and Automorphism
+
+- Proofs:
+- - U (subset of X) is a flag iff U defines a clique in the incidence graph;
+- - In an Incidence system Gamma, points of a residue of Gamma are a subset of the points of Gamma;
+- - for a Flag F of a residue of Gamma over a flag G iff F \cup G is a flag of Gamma;
+
+
+- TODO :
+- - Define Group of Automorphisms / Autocorrelations;
+- - Define Flag-Transitivity / Chamber-Transitivity;
+- - Prove: If Gamma is Geometry, then Flag-Transitivity iff Chamber-Transitivity;
+- - Define Coset Incidence System;
