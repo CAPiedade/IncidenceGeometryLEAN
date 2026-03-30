@@ -1,5 +1,8 @@
 import Mathlib
 set_option linter.style.whitespace false
+set_option linter.style.longLine false
+set_option linter.unusedVariables false
+set_option linter.unusedSimpArgs false
 universe u v w
 
 /-structure IncidenceSystem (X : Type u) (I : Type v) where
@@ -61,6 +64,12 @@ def IncidenceGraphColoring {S : IncidenceSystem X I} :
     · exact hneType
     · exact (hne heq).elim
 
+structure ColoredGraph (X : Type u) (I : Type v) where
+  graph : SimpleGraph X
+  coloring : graph.Coloring I
+
+instance : Coe (IncidenceSystem X I) (ColoredGraph X I) where
+  coe := fun S => ⟨IncidenceGraph S, IncidenceGraphColoring ⟩
 
 
 /- A flag is a set of pairwise incident elements -/
@@ -82,7 +91,7 @@ theorem IsFlag_iff (S : IncidenceSystem X I) (F : Set X) (hF : F ⊆ S.points) :
     | Or.inr hne => exact (h hx hy hne).2.2.2
 
 def IncidenceSystemOfColoredGraph (G : SimpleGraph X) (c : G.Coloring I)
-    (hcomplete : ∀ x y : X, c x ≠ c y → x = y ∨ G.Adj x y) :
+    (hcomplete : ∀ x y : X, c x ≠ c y → x = y ∨ G.Adj x y) : -- CHANGE CONDITION!
     IncidenceSystem X I where
   points := Set.univ
   types := Set.univ
@@ -145,7 +154,7 @@ theorem FlagOfResidue_FlagOfOriginal (F G: Set X) (S : IncidenceSystem X I) (hF 
 
 theorem FlagOfResidue_iff_BigFlagOfIncidenceSystem (S : IncidenceSystem X I) (F G: Set X)
 (hF : IsFlag F S) (hG : G ⊆ (ResidueOfIncidenceSystem F S hF).points):
-    IsFlag G (ResidueOfIncidenceSystem F S hF) ↔ IsFlag (F ∪ G) S := by
+  IsFlag G (ResidueOfIncidenceSystem F S hF) ↔ IsFlag (F ∪ G) S := by
   simp only [IsFlag, ResidueOfIncidenceSystem, Set.mem_diff, Set.union_subset_iff]
   apply Iff.intro
   · intro direct_imp
@@ -153,23 +162,22 @@ theorem FlagOfResidue_iff_BigFlagOfIncidenceSystem (S : IncidenceSystem X I) (F 
     apply And.intro
     · constructor
       · intro x hx
-        simp [IsFlag] at hF
         exact hF.1 hx
       · intro y hy
         let k := left hy
-        simp at k
+        simp only [Set.mem_setOf_eq, Set.mem_diff] at k
         exact k.1.1
     · intro x hx y hy
-      simp at hx hy
+      simp only [Set.mem_union] at hx hy
       match hx,hy with
       | Or.inl hx', Or.inl hy' => exact hF.2 x hx' y hy'
       | Or.inl hx', Or.inr hy' =>
         let k := left hy'
-        simp at k
+        simp only [Set.mem_setOf_eq, Set.mem_diff] at k
         exact S.incidence_symmetric (k.2 x hx')
       | Or.inr hx', Or.inl hy' =>
         let k := left hx'
-        simp at k
+        simp only [Set.mem_setOf_eq, Set.mem_diff] at k
         exact k.2 y hy'
       | Or.inr hx', Or.inr hy' => exact right x hx' y hy'
   · intro reverse_imp
@@ -177,7 +185,7 @@ theorem FlagOfResidue_iff_BigFlagOfIncidenceSystem (S : IncidenceSystem X I) (F 
     apply And.intro
     · intro x hx
       let k := hG hx
-      simp [ResidueOfIncidenceSystem] at k
+      simp only [ResidueOfIncidenceSystem, Set.mem_setOf_eq, Set.mem_diff] at k
       exact k
     · intro x hx y hy
       exact right x (Or.inr hx) y (Or.inr hy)
@@ -708,3 +716,79 @@ theorem ChamberTransitive_iff_FlagTransitive [Nonempty X]
     have hTypeCD : TypeOfFlag C S = TypeOfFlag D S := by
       rw [hCType, hDType]
     exact hFlagTrans C D hCFlag hDFlag hTypeCD
+
+
+theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
+    (S : IncidenceSystem X I) (C : Set X) (hC : IsChamber C S) :
+    IsFlagTransitive S → IsGeometry S := by
+  intro hTrans F hFsub hFflag
+  let G := {x | x ∈ C ∧ S.type_func x ∈ TypeOfFlag F S}
+  have hG_sub : G ⊆ S.points := by
+    intro x hx
+    rcases hx with ⟨hxC, _⟩
+    exact hC.1.1 hxC
+  have hG_flag : IsFlag G S := by
+    constructor
+    · exact hG_sub
+    · intro x hx y hy
+      rcases hx with ⟨hxC, _⟩
+      rcases hy with ⟨hyC, _⟩
+      exact hC.1.2 x hxC y hyC
+  have hType_eq : TypeOfFlag G S = TypeOfFlag F S := by
+    ext i
+    constructor
+    · intro hi
+      rcases hi with ⟨x, ⟨hxC, htype⟩, rfl⟩
+      exact htype
+    · intro hi
+      rcases hi with ⟨z, hzF, rfl⟩
+      have hzP : z ∈ S.points := hFsub hzF
+      have : S.type_func z ∈ Set.image S.type_func S.points := ⟨z, hzP, rfl⟩
+      have htC : S.type_func z ∈ TypeOfFlag C S := by
+        have tmp := this
+        rw [← hC.2] at tmp
+        exact tmp
+      rcases htC with ⟨y, hyC, hytz⟩
+      have hy_type_in_F : S.type_func y ∈ TypeOfFlag F S := by
+        have htz := Set.mem_image_of_mem S.type_func hzF
+        rw [hytz.symm] at htz
+        exact htz
+      exact ⟨y, ⟨hyC, hy_type_in_F⟩, hytz⟩
+  obtain ⟨α, hαimg⟩ := hTrans F G hFflag hG_flag hType_eq.symm
+  let β : Automorphism S := { toIsomorphism := invIsomorphism α }
+  -- image of a chamber under an automorphism is a chamber
+  have hFlag_βC : IsFlag (Set.image β.Fun C) S := by
+    constructor
+    · intro x hx
+      rcases hx with ⟨y, hyC, rfl⟩
+      have hyP : y ∈ S.points := hC.1.1 hyC
+      have hweak := β.toIsomorphism.toHomomorphism.toWeakHomomorphism.isWeakHom y hyP
+      exact hweak.1
+    · intro x hx y hy
+      rcases hx with ⟨u, huC, rfl⟩
+      rcases hy with ⟨v, hvC, rfl⟩
+      have huP : u ∈ S.points := hC.1.1 huC
+      have hvP : v ∈ S.points := hC.1.1 hvC
+      have hweaku := β.toIsomorphism.toHomomorphism.toWeakHomomorphism.isWeakHom u huP
+      have hpres := (hweaku.2 u huP v hvP).1
+      exact hpres (hC.1.2 u huC v hvC)
+  have hType_βC : TypeOfFlag (Set.image β.Fun C) S = TypeOfFlag C S :=
+    typeOfFlag_image_automorphism S β C hC.1
+  -- C' := image of C under inverse automorphism is a chamber containing F
+  use Set.image β.Fun C
+  constructor
+  · exact hFlag_βC.1
+  constructor
+  · exact ⟨hFlag_βC, hType_βC.trans hC.2⟩
+  · intro x hx
+    have hmem : α.Fun x ∈ Set.image α.Fun F := Set.mem_image_of_mem _ hx
+    have hmemG : α.Fun x ∈ G := by rwa [hαimg] at hmem
+    rcases hmemG with ⟨hyC, _⟩
+    have hCorr := α.isAuto.2
+    have hBij := hCorr.2.1
+    have beta_eq : β.Fun (α.Fun x) = Function.invFun α.Fun (α.Fun x) := by
+      dsimp [β]
+      rfl
+    have inv_eq := Function.leftInverse_invFun hBij.1 x
+    have final_eq := Eq.trans beta_eq inv_eq
+    refine ⟨α.Fun x, hyC, final_eq⟩
