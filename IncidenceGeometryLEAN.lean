@@ -45,6 +45,19 @@ structure IncidenceSystem (X : Type u) (I : Type v) where
 
 variable {X : Type u} {I : Type v}
 
+@[ext] theorem IncidenceSystem.ext {S T : IncidenceSystem X I}
+    (hpoints : S.points = T.points)
+    (htypes : S.types = T.types)
+    (htype_func : S.type_func = T.type_func)
+    (hincidence : S.incidence = T.incidence) : S = T := by
+  cases S
+  cases T
+  cases hpoints
+  cases htypes
+  cases htype_func
+  cases hincidence
+  simp
+
 -- elements of X \ points are singletons in this graph
 def IncidenceGraph (S : IncidenceSystem X I) : SimpleGraph X where
   Adj a b := a ≠ b ∧ a ∈ S.points ∧ b ∈ S.points ∧ S.incidence a b
@@ -190,6 +203,46 @@ theorem FlagOfResidue_iff_BigFlagOfIncidenceSystem (S : IncidenceSystem X I) (F 
     · intro x hx y hy
       exact right x (Or.inr hx) y (Or.inr hy)
 
+theorem Residue_Of_Flag_G_Of_Residue_Over_F_is_Residue_F_cup_G (S : IncidenceSystem X I) (F G: Set X)
+(hF : IsFlag F S) (hG : IsFlag G (ResidueOfIncidenceSystem F S hF)):
+  ResidueOfIncidenceSystem G (ResidueOfIncidenceSystem F S hF) hG =
+    ResidueOfIncidenceSystem (F ∪ G) S
+      ((FlagOfResidue_iff_BigFlagOfIncidenceSystem S F G hF hG.1).1 hG) := by
+  have hpoints :
+      (ResidueOfIncidenceSystem G (ResidueOfIncidenceSystem F S hF) hG).points =
+        (ResidueOfIncidenceSystem (F ∪ G) S
+          ((FlagOfResidue_iff_BigFlagOfIncidenceSystem S F G hF hG.1).1 hG)).points := by
+    ext x
+    simp only [ResidueOfIncidenceSystem, Set.mem_setOf_eq, Set.mem_diff, Set.mem_union,
+      and_assoc, and_left_comm, and_comm]
+    constructor
+    · intro hx
+      rcases hx with ⟨hxF, hxG, hxP, hincF, hincG⟩
+      refine ⟨?_, hxP, ?_⟩
+      · intro hxFG
+        rcases hxFG with hxF' | hxG'
+        · exact hxF hxF'
+        · exact hxG hxG'
+      · intro y hy
+        rcases hy with hy | hy
+        · exact hincF y hy
+        · exact hincG y hy
+    · intro hx
+      rcases hx with ⟨hxFG, hxP, hincFG⟩
+      refine ⟨?_, ?_, hxP, ?_, ?_⟩
+      · intro hxF
+        exact hxFG (Or.inl hxF)
+      · intro hxG
+        exact hxFG (Or.inr hxG)
+      · intro y hy
+        exact hincFG y (Or.inl hy)
+      · intro y hy
+        exact hincFG y (Or.inr hy)
+  refine IncidenceSystem.ext hpoints ?_ rfl rfl
+  simpa only [ResidueOfIncidenceSystem] using congrArg (Set.image S.type_func) hpoints
+
+
+
 def IncSys_IsConnected (S : IncidenceSystem X I) : Prop :=
   SimpleGraph.Connected (IncidenceGraph S)
 
@@ -208,6 +261,100 @@ def IncSys_IsResiduallyConnected (S : IncidenceSystem X I) : Prop :=
 
 def IsGeometry (S : IncidenceSystem X I) : Prop :=
   ∀ F : Set X, F ⊆ S.points → (hF : IsFlag F S) → ∃ C : Set X, C ⊆ S.points ∧ IsChamber C S ∧ F ⊆ C
+
+
+theorem If_Gamma_Geometry_Then_Gamma_F_Geometry_Over_I_minus_tF (S : IncidenceSystem X I) (F : Set X)
+(hF : IsFlag F S) :
+  IsGeometry S  → IsGeometry (ResidueOfIncidenceSystem F S hF) ∧
+    (ResidueOfIncidenceSystem F S hF).types =
+      Set.image S.type_func S.points \ {S.type_func x | x ∈ F} := by
+  intro hGeom
+  let R := ResidueOfIncidenceSystem F S hF
+  constructor
+  · intro G hGsub hG
+    have hFGflag : IsFlag (F ∪ G) S :=
+      (FlagOfResidue_iff_BigFlagOfIncidenceSystem S F G hF hGsub).1 hG
+    obtain ⟨C, hCsub, hCch, hFGsub⟩ := hGeom (F ∪ G) (by
+      intro x hx
+      rcases hx with hx | hx
+      · exact hF.1 hx
+      · exact (hGsub hx).1.1) hFGflag
+    let D : Set X := C \ F
+    have hDsubR : D ⊆ R.points := by
+      intro x hxD
+      rcases hxD with ⟨hxC, hxnotF⟩
+      refine ⟨⟨hCsub hxC, hxnotF⟩, ?_⟩
+      intro y hyF
+      exact hCch.1.2 x hxC y (hFGsub (Or.inl hyF))
+    have hDflagR : IsFlag D R := by
+      constructor
+      · exact hDsubR
+      · intro x hxD y hyD
+        exact hCch.1.2 x hxD.1 y hyD.1
+    have hDchamberR : IsChamber D R := by
+      refine ⟨hDflagR, ?_⟩
+      ext i
+      constructor
+      · intro hi
+        rcases hi with ⟨x, hxD, hxi⟩
+        refine ⟨x, hDsubR hxD, hxi⟩
+      · intro hi
+        rcases hi with ⟨x, hxR, hxi⟩
+        have hixS : i ∈ Set.image S.type_func S.points := ⟨x, hxR.1.1, hxi⟩
+        have hixC : i ∈ TypeOfFlag C S := by
+          rw [hCch.2]
+          exact hixS
+        rcases hixC with ⟨z, hzC, hzi⟩
+        have hznotF : z ∉ F := by
+          intro hzF
+          have hxincz : S.incidence x z := hxR.2 z hzF
+          have hzP : z ∈ S.points := hF.1 hzF
+          have hxyOr : S.type_func x ≠ S.type_func z ∨ x = z :=
+            (S.incidence_type_condition x z hxR.1.1 hzP).1 hxincz
+          have hxz : x = z := by
+            rcases hxyOr with hneq | hxz
+            · exfalso
+              exact hneq (by simpa [hxi, hzi])
+            · exact hxz
+          exact hxR.1.2 (hxz ▸ hzF)
+        exact ⟨z, ⟨hzC, hznotF⟩, hzi⟩
+    refine ⟨D, hDsubR, hDchamberR, ?_⟩
+    intro x hxGx
+    have hxR : x ∈ R.points := hGsub hxGx
+    have hxC : x ∈ C := hFGsub (Or.inr hxGx)
+    exact ⟨hxC, hxR.1.2⟩
+  · ext i
+    constructor
+    · intro hi
+      rcases hi with ⟨x, hxR, hxi⟩
+      refine ⟨⟨x, hxR.1.1, hxi⟩, ?_⟩
+      intro hiF
+      rcases hiF with ⟨y, hyF, hyi⟩
+      have hxyInc : S.incidence x y := hxR.2 y hyF
+      have hyP : y ∈ S.points := hF.1 hyF
+      have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
+        (S.incidence_type_condition x y hxR.1.1 hyP).1 hxyInc
+      have hxy : x = y := by
+        rcases hxyOr with hneq | hxy
+        · exfalso
+          exact hneq (by simp [hxi, hyi])
+        · exact hxy
+      exact hxR.1.2 (hxy ▸ hyF)
+    · intro hi
+      rcases hi with ⟨hiS, hiNotF⟩
+      obtain ⟨C, hCsub, hCch, hFsubC⟩ := hGeom F hF.1 hF
+      have hiC : i ∈ TypeOfFlag C S := by
+        rw [hCch.2]
+        exact hiS
+      rcases hiC with ⟨z, hzC, hzi⟩
+      have hznotF : z ∉ F := by
+        intro hzF
+        exact hiNotF ⟨z, hzF, hzi⟩
+      have hzR : z ∈ R.points := by
+        refine ⟨⟨hCsub hzC, hznotF⟩, ?_⟩
+        intro y hyF
+        exact hCch.1.2 z hzC y (hFsubC hyF)
+      exact ⟨z, hzR, hzi⟩
 
 def IsFirm (S : IncidenceSystem X I) : Prop :=
   ∀ F : Set X, F ⊆ S.points → (hF : IsFlag F S) → IsGeometry S →
