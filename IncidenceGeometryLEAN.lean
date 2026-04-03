@@ -41,7 +41,7 @@ structure IncidenceSystem (X : Type u) (I : Type v) where
   incidence_reflexive : Reflexive incidence
   incidence_symmetric : Symmetric incidence
   incidence_type_condition :
-    ∀ x y : X, x ∈ points → y ∈ points → (incidence x y ↔ (type_func x ≠ type_func y ∨ x = y))
+    ∀ x y : X, x ∈ points → y ∈ points → (incidence x y → (type_func x ≠ type_func y ∨ x = y))
 
 variable {X : Type u} {I : Type v}
 
@@ -72,7 +72,7 @@ def IncidenceGraphColoring {S : IncidenceSystem X I} :
     intro a b hab
     rcases hab with ⟨hne, ha, hb, hab⟩
     have hcond : S.type_func a ≠ S.type_func b ∨ a = b :=
-      (S.incidence_type_condition a b ha hb).1 hab
+      S.incidence_type_condition a b ha hb hab
     rcases hcond with hneType | heq
     · exact hneType
     · exact (hne heq).elim
@@ -119,16 +119,10 @@ def IncidenceSystemOfColoredGraph (G : SimpleGraph X) (c : G.Coloring I)
     · exact Or.inl hxy.symm
     · exact Or.inr (G.symm hxy)
   incidence_type_condition := by
-    intro x y _ _
-    constructor
-    · intro hxy
-      rcases hxy with hxy | hxy
-      · exact Or.inr hxy
-      · exact Or.inl (c.valid hxy)
-    · intro hxy
-      rcases hxy with hxy | hxy
-      · exact hcomplete x y hxy
-      · exact Or.inl hxy
+    intro x y _ _ hxy
+    rcases hxy with hxy | hxy
+    · exact Or.inr hxy
+    · exact Or.inl (c.valid hxy)
 
 
 def ResidueOfIncidenceSystem (F : Set X) (S : IncidenceSystem X I) (hF : IsFlag F S) :
@@ -140,15 +134,8 @@ def ResidueOfIncidenceSystem (F : Set X) (S : IncidenceSystem X I) (hF : IsFlag 
   incidence_reflexive := S.incidence_reflexive
   incidence_symmetric := S.incidence_symmetric
   incidence_type_condition := by
-    intro x y
-    match Classical.em <| x = y with
-    | Or.inl h =>
-        subst h
-        simp [S.incidence_reflexive x]
-    | Or.inr h =>
-        simp only [Set.mem_diff, Set.mem_setOf_eq, ne_eq, h, or_false, and_imp]
-        intro hx _ _ hy _ _
-        simp [h, S.incidence_type_condition x y hx hy]
+    intro x y hx hy hxy
+    exact S.incidence_type_condition x y hx.1.1 hy.1.1 hxy
 
 
 theorem ResidueOfIncidenceSystem_points (F : Set X) (S : IncidenceSystem X I) (hF : IsFlag F S) :
@@ -310,7 +297,7 @@ theorem If_Gamma_Geometry_Then_Gamma_F_Geometry_Over_I_minus_tF (S : IncidenceSy
           have hxincz : S.incidence x z := hxR.2 z hzF
           have hzP : z ∈ S.points := hF.1 hzF
           have hxyOr : S.type_func x ≠ S.type_func z ∨ x = z :=
-            (S.incidence_type_condition x z hxR.1.1 hzP).1 hxincz
+            S.incidence_type_condition x z hxR.1.1 hzP hxincz
           have hxz : x = z := by
             rcases hxyOr with hneq | hxz
             · exfalso
@@ -333,7 +320,7 @@ theorem If_Gamma_Geometry_Then_Gamma_F_Geometry_Over_I_minus_tF (S : IncidenceSy
       have hxyInc : S.incidence x y := hxR.2 y hyF
       have hyP : y ∈ S.points := hF.1 hyF
       have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
-        (S.incidence_type_condition x y hxR.1.1 hyP).1 hxyInc
+        S.incidence_type_condition x y hxR.1.1 hyP hxyInc
       have hxy : x = y := by
         rcases hxyOr with hneq | hxy
         · exfalso
@@ -802,7 +789,7 @@ theorem eq_of_subset_chamber_of_typeEq (S : IncidenceSystem X I)
     have hxP : x ∈ S.points := hC.1.1 hxC
     have hyP : y ∈ S.points := hC.1.1 hyC
     have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
-      (S.incidence_type_condition x y hxP hyP).1 hxyInc
+      S.incidence_type_condition x y hxP hyP hxyInc
     have hxy : x = y := by
       rcases hxyOr with hne | hEq
       · exfalso
@@ -819,7 +806,7 @@ theorem eq_of_subset_chamber_of_typeEq (S : IncidenceSystem X I)
     have hxP : x ∈ S.points := hC.1.1 hxC
     have hyP : y ∈ S.points := hC.1.1 hyC
     have hxyOr : S.type_func x ≠ S.type_func y ∨ x = y :=
-      (S.incidence_type_condition x y hxP hyP).1 hxyInc
+      S.incidence_type_condition x y hxP hyP hxyInc
     have hxy : x = y := by
       rcases hxyOr with hne | hEq
       · exfalso
@@ -827,61 +814,77 @@ theorem eq_of_subset_chamber_of_typeEq (S : IncidenceSystem X I)
       · exact hEq
     simpa [hxy] using hyA
 
-def IsFlagTransitive [Nonempty X] (S : IncidenceSystem X I) : Prop :=
-  ∀ F G : Set X, IsFlag F S → IsFlag G S →
-    TypeOfFlag F S = TypeOfFlag G S →
-    ∃ α : Automorphism S, Set.image α.Fun F = G
 
-def IsChamberTransitive [Nonempty X] (S : IncidenceSystem X I) : Prop :=
-  ∀ C D : Set X, IsChamber C S → IsChamber D S →
-    ∃ α : Automorphism S, Set.image α.Fun C = D
 
-set_option linter.style.whitespace false in
-theorem ChamberTransitive_iff_FlagTransitive [Nonempty X]
-    (S : IncidenceSystem X I) (IsGeom : IsGeometry S) :
-    IsChamberTransitive S ↔ IsFlagTransitive S := by
+def Phi_Is_Representation [Nonempty X]
+    (G : Type w) [Group G] (S : IncidenceSystem X I) (ϕ : G → Automorphism S) : Prop :=
+  ϕ 1 = 1 ∧ ∀ g h : G, ϕ (g * h) = ϕ g * ϕ h
+
+
+def IsPointTransitive [Nonempty X] (G : Type w) [Group G] (S : IncidenceSystem X I) (ϕ : G → Automorphism S)  : Prop :=
+  Phi_Is_Representation G S ϕ ∧ ∀ x ∈ S.points, ∀ y ∈ S.points, S.type_func x = S.type_func y → ∃ g : G, (ϕ g).Fun x = y
+
+def IsIncidenceTransitive [Nonempty X] (G : Type w) [Group G] (S : IncidenceSystem X I) (ϕ : G → Automorphism S)  : Prop :=
+  IsPointTransitive G S ϕ ∧ ∀ x ∈ S.points, ∀ y ∈ S.points, S.incidence x y → ∃ g : G, S.incidence ((ϕ g).Fun x) ((ϕ g).Fun y)
+
+def IsFlagTransitive [Nonempty X] (G : Type w) [Group G] (S : IncidenceSystem X I) (ϕ : G → Automorphism S)  : Prop :=
+  IsIncidenceTransitive G S ϕ
+  ∧ ∀ F₁ F₂ : Set X, IsFlag F₁ S → IsFlag F₂ S → TypeOfFlag F₁ S = TypeOfFlag F₂ S →
+    ∃ g : G, Set.image (ϕ g).Fun F₁ = F₂
+
+def IsChamberTransitive [Nonempty X] (G : Type w) [Group G] (S : IncidenceSystem X I) (ϕ : G → Automorphism S) : Prop :=
+  IsIncidenceTransitive G S ϕ
+  ∧ ∀ F₁ F₂ : Set X, IsChamber F₁ S → IsChamber F₂ S →
+    ∃ g : G, Set.image (ϕ g).Fun F₁ = F₂
+
+
+theorem Geometry_then_ChamberTransitive_iff_FlagTransitive [Nonempty X]
+    (S : IncidenceSystem X I) (IsGeom : IsGeometry S) (G : Type w) [Group G] (ϕ : G → Automorphism S) :
+  IsChamberTransitive G S ϕ ↔ IsFlagTransitive G S ϕ := by
   constructor
-  · intro hChamberTrans F G hF hG hType
+  · intro hChamberTrans
+    refine ⟨hChamberTrans.1, ?_⟩
+    intro F H hF hH hType
     obtain ⟨CF, hCF, hChamberF, hFsubCF⟩ := IsGeom F hF.1 hF
-    obtain ⟨CG, hCG, hChamberG, hGsubCG⟩ := IsGeom G hG.1 hG
-    obtain ⟨α, hα⟩ := hChamberTrans CF CG hChamberF hChamberG
-    refine ⟨α, ?_⟩
-    have hImgSubCG : Set.image α.Fun F ⊆ CG := by
+    obtain ⟨CH, hCH, hChamberH, hHsubCH⟩ := IsGeom H hH.1 hH
+    obtain ⟨g, hg⟩ := hChamberTrans.2 CF CH hChamberF hChamberH
+    refine ⟨g, ?_⟩
+    have hImgSubCH : Set.image (ϕ g).Fun F ⊆ CH := by
       intro y hy
       rcases hy with ⟨x, hxF, rfl⟩
       have hxCF : x ∈ CF := hFsubCF hxF
-      have hax : α.Fun x ∈ Set.image α.Fun CF := ⟨x, hxCF, rfl⟩
-      simpa [hα] using hax
-    have hTypeImg : TypeOfFlag (Set.image α.Fun F) S = TypeOfFlag F S :=
-      typeOfFlag_image_automorphism S α F hF
-    have hTypeImgG : TypeOfFlag (Set.image α.Fun F) S = TypeOfFlag G S :=
+      have hax : (ϕ g).Fun x ∈ Set.image (ϕ g).Fun CF := ⟨x, hxCF, rfl⟩
+      simpa [hg] using hax
+    have hTypeImg : TypeOfFlag (Set.image (ϕ g).Fun F) S = TypeOfFlag F S :=
+      typeOfFlag_image_automorphism S (ϕ g) F hF
+    have hTypeImgH : TypeOfFlag (Set.image (ϕ g).Fun F) S = TypeOfFlag H S :=
       hTypeImg.trans hType
-    exact eq_of_subset_chamber_of_typeEq S hChamberG hImgSubCG hGsubCG hTypeImgG
-  · intro hFlagTrans C D hC hD
-    rcases hC with ⟨hCFlag, hCType⟩
-    rcases hD with ⟨hDFlag, hDType⟩
+    exact eq_of_subset_chamber_of_typeEq S hChamberH hImgSubCH hHsubCH hTypeImgH
+  · intro hFlagTrans
+    refine ⟨hFlagTrans.1, ?_⟩
+    intro C D hC hD
     have hTypeCD : TypeOfFlag C S = TypeOfFlag D S := by
-      rw [hCType, hDType]
-    exact hFlagTrans C D hCFlag hDFlag hTypeCD
+      rw [hC.2, hD.2]
+    exact hFlagTrans.2 C D hC.1 hD.1 hTypeCD
 
 
 theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
-    (S : IncidenceSystem X I) (C : Set X) (hC : IsChamber C S) :
-    IsFlagTransitive S → IsGeometry S := by
+    (S : IncidenceSystem X I) (C : Set X) (hC : IsChamber C S) (G : Type w) [Group G] (ϕ : G → Automorphism S) :
+  IsFlagTransitive G S ϕ → IsGeometry S := by
   intro hTrans F hFsub hFflag
-  let G := {x | x ∈ C ∧ S.type_func x ∈ TypeOfFlag F S}
-  have hG_sub : G ⊆ S.points := by
+  let Gset := {x | x ∈ C ∧ S.type_func x ∈ TypeOfFlag F S}
+  have hG_sub : Gset ⊆ S.points := by
     intro x hx
     rcases hx with ⟨hxC, _⟩
     exact hC.1.1 hxC
-  have hG_flag : IsFlag G S := by
+  have hG_flag : IsFlag Gset S := by
     constructor
     · exact hG_sub
     · intro x hx y hy
       rcases hx with ⟨hxC, _⟩
       rcases hy with ⟨hyC, _⟩
       exact hC.1.2 x hxC y hyC
-  have hType_eq : TypeOfFlag G S = TypeOfFlag F S := by
+  have hType_eq : TypeOfFlag Gset S = TypeOfFlag F S := by
     ext i
     constructor
     · intro hi
@@ -901,9 +904,9 @@ theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
         rw [hytz.symm] at htz
         exact htz
       exact ⟨y, ⟨hyC, hy_type_in_F⟩, hytz⟩
-  obtain ⟨α, hαimg⟩ := hTrans F G hFflag hG_flag hType_eq.symm
+  obtain ⟨g, hgimg⟩ := hTrans.2 F Gset hFflag hG_flag hType_eq.symm
+  let α : Automorphism S := ϕ g
   let β : Automorphism S := { toIsomorphism := invIsomorphism α }
-  -- image of a chamber under an automorphism is a chamber
   have hFlag_βC : IsFlag (Set.image β.Fun C) S := by
     constructor
     · intro x hx
@@ -921,7 +924,6 @@ theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
       exact hpres (hC.1.2 u huC v hvC)
   have hType_βC : TypeOfFlag (Set.image β.Fun C) S = TypeOfFlag C S :=
     typeOfFlag_image_automorphism S β C hC.1
-  -- C' := image of C under inverse automorphism is a chamber containing F
   use Set.image β.Fun C
   constructor
   · exact hFlag_βC.1
@@ -929,7 +931,7 @@ theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
   · exact ⟨hFlag_βC, hType_βC.trans hC.2⟩
   · intro x hx
     have hmem : α.Fun x ∈ Set.image α.Fun F := Set.mem_image_of_mem _ hx
-    have hmemG : α.Fun x ∈ G := by rwa [hαimg] at hmem
+    have hmemG : α.Fun x ∈ Gset := by rwa [hgimg] at hmem
     rcases hmemG with ⟨hyC, _⟩
     have hCorr := α.isAuto.2
     have hBij := hCorr.2.1
@@ -939,3 +941,122 @@ theorem FlagTransitive_and_ExistsChamber_implies_Geometry [Nonempty X]
     have inv_eq := Function.leftInverse_invFun hBij.1 x
     have final_eq := Eq.trans beta_eq inv_eq
     refine ⟨α.Fun x, hyC, final_eq⟩
+
+
+
+open scoped Pointwise
+
+/-- A coset-incidence system built from a group and an indexed family of subgroups.
+Its elements are indexed left cosets `(i, g)` representing `g * Gᵢ`.
+Two elements are incident iff the corresponding cosets intersect nontrivially. -/
+structure CosetIncidenceSystem (G : Type u) [Group G] (I : Type v) where
+  /-- A function from indices to subgroups of G. -/
+  types : Set I
+  subgroups : types → Subgroup G
+
+namespace CosetIncidenceSystem
+
+variable {G : Type u} [Group G] {I : Type v}
+
+/-- Elements of the coset-incidence system: pairs (i, x) where i : I and x is a coset class in G ⧸ Gᵢ. -/
+def points (C : CosetIncidenceSystem G I) : Type max u v := Σ i : C.types, G ⧸ (C.subgroups i)
+
+/-- Type function: remembers the index of the subgroup. -/
+def typeFunc (C : CosetIncidenceSystem G I) (x : C.points) : I := x.1
+
+/-- Lift a coset class representative to get an element of G. -/
+noncomputable def liftRep (C : CosetIncidenceSystem G I) (x : C.points) : G :=
+  Quotient.out x.2
+
+/-- The actual left coset represented by `x = (i, ⟨g⟩)`, namely `g • Gᵢ`. -/
+def coset (C : CosetIncidenceSystem G I) (x : C.points) : Set G :=
+  C.liftRep x • (C.subgroups x.1 : Set G)
+
+/-- Incidence: two elements are incident iff their cosets intersect nontrivially. -/
+def incidence (C : CosetIncidenceSystem G I) (x y : C.points) : Prop :=
+  (C.coset x ∩ C.coset y).Nonempty
+
+
+theorem incidence_symmetric (C : CosetIncidenceSystem G I) : Symmetric C.incidence := by
+  intro x y hxy
+  simpa [incidence, Set.inter_comm] using hxy
+
+theorem incidence_reflexive (C : CosetIncidenceSystem G I) : Reflexive C.incidence := by
+  intro x
+  refine ⟨C.liftRep x, ?_, ?_⟩
+  · exact ⟨1, (C.subgroups x.1).one_mem, by simp⟩
+  · exact ⟨1, (C.subgroups x.1).one_mem, by simp⟩
+
+theorem incidence_type_condition (C : CosetIncidenceSystem G I) (x y : C.points) :
+    C.incidence x y → C.typeFunc x ≠ C.typeFunc y ∨ C.coset x = C.coset y := by
+  intro hinc
+  by_cases htypeNe : C.typeFunc x ≠ C.typeFunc y
+  · exact Or.inl htypeNe
+  · right
+    rcases x with ⟨ix, qx⟩
+    rcases y with ⟨iy, qy⟩
+    have htypeEq : (ix : I) = iy := by
+      simpa [typeFunc] using (not_ne_iff.mp htypeNe)
+    have hidx : ix = iy := Subtype.ext htypeEq
+    subst hidx
+    rcases hinc with ⟨g, hgx, hgy⟩
+    have hxH : (Quotient.out qx)⁻¹ * g ∈ C.subgroups ix := by
+      simpa [incidence, coset, liftRep] using
+        (mem_leftCoset_iff (s := C.subgroups ix) (a := Quotient.out qx) (x := g)).1 hgx
+    have hyH : (Quotient.out qy)⁻¹ * g ∈ C.subgroups ix := by
+      simpa [incidence, coset, liftRep] using
+        (mem_leftCoset_iff (s := C.subgroups ix) (a := Quotient.out qy) (x := g)).1 hgy
+    have hxyH : (Quotient.out qx)⁻¹ * Quotient.out qy ∈ C.subgroups ix := by
+      have hmul : (Quotient.out qx)⁻¹ * g * (((Quotient.out qy)⁻¹ * g)⁻¹) ∈ C.subgroups ix :=
+        (C.subgroups ix).mul_mem hxH ((C.subgroups ix).inv_mem hyH)
+      simpa [mul_assoc] using hmul
+    have hEq :
+        Quotient.out qx • ((C.subgroups ix : Subgroup G) : Set G) =
+          Quotient.out qy • ((C.subgroups ix : Subgroup G) : Set G) := by
+      exact (leftCoset_eq_iff (s := C.subgroups ix)).2 hxyH
+    simpa [coset, liftRep] using hEq
+
+/-- Stronger form: incidence implies types differ OR the points are equal. -/
+theorem incidence_type_condition_strong (C : CosetIncidenceSystem G I) (x y : C.points) :
+    C.incidence x y → C.typeFunc x ≠ C.typeFunc y ∨ x = y := by
+  intro hinc
+  by_cases htypeNe : C.typeFunc x ≠ C.typeFunc y
+  · exact Or.inl htypeNe
+  · right
+    have htypeEq : C.typeFunc x = C.typeFunc y := not_ne_iff.mp htypeNe
+    rcases C.incidence_type_condition x y hinc with hne | hcoset
+    · exact absurd hne htypeNe
+    · rcases x with ⟨ix, qx⟩
+      rcases y with ⟨iy, qy⟩
+      simp only [typeFunc] at htypeEq
+      have hidx : ix = iy := Subtype.ext htypeEq
+      subst hidx
+      simp only [coset, liftRep] at hcoset
+      have hxyH : (Quotient.out qx)⁻¹ * Quotient.out qy ∈ C.subgroups ix :=
+        (leftCoset_eq_iff (s := C.subgroups ix)).mp hcoset
+      have hqeq : qx = qy := by
+        have hclass := QuotientGroup.eq.mpr hxyH
+        simp only [Quotient.out_eq] at hclass
+        exact hclass
+      exact Sigma.ext rfl (heq_of_eq hqeq)
+
+end CosetIncidenceSystem
+
+
+
+variable {G : Type u} [Group G] {I : Type v}
+
+def CosetIncidenceSystem_to_IncidenceSystem
+    (C : CosetIncidenceSystem G I) : IncidenceSystem C.points I :=
+  { points := Set.univ
+    types := C.types
+    type_func := C.typeFunc
+    incidence := C.incidence
+    incidence_reflexive := C.incidence_reflexive
+    incidence_symmetric := C.incidence_symmetric
+    incidence_type_condition := fun x y _ _ hinc => C.incidence_type_condition_strong x y hinc }
+
+
+
+instance (C : CosetIncidenceSystem G I) : CoeDep (CosetIncidenceSystem G I) C (IncidenceSystem C.points I) where
+  coe := CosetIncidenceSystem_to_IncidenceSystem C
